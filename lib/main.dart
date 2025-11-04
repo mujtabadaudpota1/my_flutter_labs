@@ -1,93 +1,199 @@
 import 'package:flutter/material.dart';
+import 'app_database.dart';
+import 'todo_dao.dart';
+import 'todo_item.dart';
 
-void main() => runApp(const MyApp());
+void main() => runApp(const ShoppingApp());
 
-class MyApp extends StatelessWidget {
-  const MyApp({super.key});
+class ShoppingApp extends StatelessWidget {
+  const ShoppingApp({super.key});
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'CST2335 Lab 1',
-      theme: ThemeData(
-        useMaterial3: true,
-        colorSchemeSeed: Colors.deepPurple,
-      ),
-      home: const MyHomePage(),
+      title: 'Shopping List (Floor)',
+      theme: ThemeData(useMaterial3: true),
+      home: const ShoppingHome(),
+      debugShowCheckedModeBanner: false,
     );
   }
 }
 
-class MyHomePage extends StatefulWidget {
-  const MyHomePage({super.key});
+class ShoppingHome extends StatefulWidget {
+  const ShoppingHome({super.key});
 
   @override
-  State<MyHomePage> createState() => _MyHomePageState();
+  State<ShoppingHome> createState() => _ShoppingHomeState();
 }
 
-class _MyHomePageState extends State<MyHomePage> {
-  // 1) counter as double
-  double _counter = 0.0;
+class _ShoppingHomeState extends State<ShoppingHome> {
+  late AppDatabase _db;
+  late TodoDao _dao;
 
-  // 2) font size variable
-  double _myFontSize = 30.0;
+  final _itemCtrl = TextEditingController();
+  final _qtyCtrl = TextEditingController();
 
-  // 3) increment but cap at 99
-  void _incrementCounter() {
+  List<TodoItem> _items = [];
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _initDbAndLoad();
+  }
+
+  Future<void> _initDbAndLoad() async {
+    _db = await $FloorAppDatabase.databaseBuilder('shopping.db').build();
+    _dao = _db.todoDao;
+    final saved = await _dao.getAll();
     setState(() {
-      if (_counter < 99) {
-        _counter += 1.0;
-      }
+      _items = saved;
+      _loading = false;
     });
   }
 
-  // 4) update font size via slider
-  void _setNewValue(double newValue) {
+  Future<void> _addItem() async {
+    final name = _itemCtrl.text.trim();
+    final qty = int.tryParse(_qtyCtrl.text.trim());
+    if (name.isEmpty || qty == null || qty <= 0) return;
+
+    final newId = await _dao.insertOne(TodoItem(name: name, quantity: qty));
     setState(() {
-      _myFontSize = newValue;
+      _items.add(TodoItem(id: newId, name: name, quantity: qty));
+      _itemCtrl.clear();
+      _qtyCtrl.clear();
     });
+  }
+
+  Future<void> _deleteItem(TodoItem item) async {
+    await _dao.deleteOne(item);
+    setState(() {
+      _items.removeWhere((e) => e.id == item.id);
+    });
+  }
+
+  Future<void> _confirmDelete(TodoItem item) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete item'),
+        content: Text('Do you want to delete "${item.name}" (qty: ${item.quantity})?'),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: const Text('No')),
+          TextButton(onPressed: () => Navigator.of(ctx).pop(true), child: const Text('Yes')),
+        ],
+      ),
+    );
+    if (ok == true) {
+      await _deleteItem(item);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('"${item.name}" removed')),
+        );
+      }
+    }
+  }
+
+  // Per instructions: create the list UI in a function that returns a widget.
+  Widget ListPage() {
+    return Column(
+      children: [
+        // One line: Item, Qty, Add
+        Row(
+          children: [
+            Expanded(
+              flex: 3,
+              child: TextField(
+                controller: _itemCtrl,
+                decoration: const InputDecoration(
+                  labelText: 'Item name',
+                  border: OutlineInputBorder(),
+                ),
+                textInputAction: TextInputAction.next,
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              flex: 1,
+              child: TextField(
+                controller: _qtyCtrl,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(
+                  labelText: 'Qty',
+                  border: OutlineInputBorder(),
+                ),
+                onSubmitted: (_) => _addItem(),
+              ),
+            ),
+            const SizedBox(width: 8),
+            ElevatedButton(onPressed: _addItem, child: const Text('Add')),
+          ],
+        ),
+        const SizedBox(height: 12),
+
+        // Empty state or list
+        Expanded(
+          child: _loading
+              ? const Center(child: CircularProgressIndicator())
+              : _items.isEmpty
+              ? const Center(
+            child: Text(
+              'There are no items in the list',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
+            ),
+          )
+              : ListView.builder(
+            itemCount: _items.length,
+            itemBuilder: (context, index) {
+              final e = _items[index];
+              return GestureDetector(
+                onLongPress: () => _confirmDelete(e),
+                child: Card(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    child: Row(
+                      children: [
+                        // Left: row number + item name
+                        Expanded(
+                          child: Text(
+                            '${index + 1}. ${e.name}',
+                            style: const TextStyle(fontSize: 16),
+                          ),
+                        ),
+                        // Right: quantity
+                        Text(
+                          '${e.quantity}',
+                          style: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
+  @override
+  void dispose() {
+    _itemCtrl.dispose();
+    _qtyCtrl.dispose();
+    _db.close();
+    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Flutter Demo Home Page'),
-      ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _incrementCounter,
-        child: const Icon(Icons.add),
-      ),
-      body: Padding(
-        padding: const EdgeInsets.all(24.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-            Text(
-              'You have pushed the button this many times:',
-              style: TextStyle(fontSize: _myFontSize),
-            ),
-            const SizedBox(height: 24),
-            Text(
-              _counter.toStringAsFixed(0),
-              style: TextStyle(
-                fontSize: _myFontSize,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            const SizedBox(height: 24),
-            // slider controls font size
-            Slider(
-              value: _myFontSize,
-              min: 12,
-              max: 60,
-              divisions: 48,
-              label: _myFontSize.toStringAsFixed(0),
-              onChanged: _setNewValue,
-            ),
-          ],
-        ),
-      ),
+      appBar: AppBar(title: const Text('Shopping List (Floor)')),
+      body: Padding(padding: const EdgeInsets.all(12), child: ListPage()),
     );
   }
 }
