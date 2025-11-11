@@ -5,9 +5,9 @@ import 'package:sqflite/sqflite.dart' as sqflite;
 import 'todo_item.dart';
 import 'todo_dao.dart';
 
-part 'app_database.g.dart'; // GENERATED — do not import/create manually
+part 'app_database.g.dart';
 
-@Database(version: 1, entities: [TodoItem])
+@Database(version: 1, entities: [ToDoItem]) // 👈 entity included
 abstract class AppDatabase extends FloorDatabase {
-  TodoDao get todoDao;
+  ToDoDao get todoDao; // 👈 matches your DAO class name
 }

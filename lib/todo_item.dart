@@ -1,11 +1,12 @@
 import 'package:floor/floor.dart';
 
-@entity
-class TodoItem {
-  @primaryKey // (use lowercase for best compatibility)
-  final int? id;        // null on insert; Floor will generate it
+@Entity(tableName: 'items')
+class ToDoItem {
+  @PrimaryKey(autoGenerate: true)
+  final int? id;
+
   final String name;
   final int quantity;
 
-  const TodoItem({this.id, required this.name, required this.quantity});
+  const ToDoItem({this.id, required this.name, required this.quantity});
 }

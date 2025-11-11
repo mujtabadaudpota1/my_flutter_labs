@@ -3,197 +3,261 @@ import 'app_database.dart';
 import 'todo_dao.dart';
 import 'todo_item.dart';
 
-void main() => runApp(const ShoppingApp());
+// ---------- ENTRYPOINT ----------
+void main() {
+  WidgetsFlutterBinding.ensureInitialized();
+  runApp(const MyApp());
+}
 
-class ShoppingApp extends StatelessWidget {
-  const ShoppingApp({super.key});
-
+class MyApp extends StatelessWidget {
+  const MyApp({super.key});
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Shopping List (Floor)',
-      theme: ThemeData(useMaterial3: true),
-      home: const ShoppingHome(),
+      title: 'Week 9 Responsive Layout',
+      theme: ThemeData(useMaterial3: true, colorSchemeSeed: Colors.teal),
       debugShowCheckedModeBanner: false,
+      home: const MyShoppingPage(),
     );
   }
 }
+// --------------------------------
 
-class ShoppingHome extends StatefulWidget {
-  const ShoppingHome({super.key});
-
+class MyShoppingPage extends StatefulWidget {
+  const MyShoppingPage({super.key});
   @override
-  State<ShoppingHome> createState() => _ShoppingHomeState();
+  State<MyShoppingPage> createState() => _MyShoppingPageState();
 }
 
-class _ShoppingHomeState extends State<ShoppingHome> {
+class _MyShoppingPageState extends State<MyShoppingPage> {
   late AppDatabase _db;
-  late TodoDao _dao;
+  late ToDoDao _dao;
 
-  final _itemCtrl = TextEditingController();
+  final _nameCtrl = TextEditingController();
   final _qtyCtrl = TextEditingController();
 
-  List<TodoItem> _items = [];
-  bool _loading = true;
+  List<ToDoItem> _items = [];
+  ToDoItem? _selected; // selected item for details view
 
   @override
   void initState() {
     super.initState();
-    _initDbAndLoad();
+    _openDb();
   }
 
-  Future<void> _initDbAndLoad() async {
-    _db = await $FloorAppDatabase.databaseBuilder('shopping.db').build();
+  Future<void> _openDb() async {
+    _db = await $FloorAppDatabase.databaseBuilder('week9.db').build();
     _dao = _db.todoDao;
-    final saved = await _dao.getAll();
-    setState(() {
-      _items = saved;
-      _loading = false;
-    });
+    await _reload();
+  }
+
+  Future<void> _reload() async {
+    _items = await _dao.findAll();
+    setState(() {});
+  }
+
+  bool _isWideLandscape(BuildContext c) {
+    final s = MediaQuery.of(c).size;
+    return (s.width > s.height) && (s.width > 720);
   }
 
   Future<void> _addItem() async {
-    final name = _itemCtrl.text.trim();
-    final qty = int.tryParse(_qtyCtrl.text.trim());
-    if (name.isEmpty || qty == null || qty <= 0) return;
+    final name = _nameCtrl.text.trim();
+    final qty = int.tryParse(_qtyCtrl.text.trim()) ?? 0;
+    if (name.isEmpty) return;
 
-    final newId = await _dao.insertOne(TodoItem(name: name, quantity: qty));
-    setState(() {
-      _items.add(TodoItem(id: newId, name: name, quantity: qty));
-      _itemCtrl.clear();
-      _qtyCtrl.clear();
-    });
+    await _dao.insertItem(ToDoItem(name: name, quantity: qty));
+    _nameCtrl.clear();
+    _qtyCtrl.clear();
+    _selected = null;
+    await _reload();
   }
 
-  Future<void> _deleteItem(TodoItem item) async {
-    await _dao.deleteOne(item);
-    setState(() {
-      _items.removeWhere((e) => e.id == item.id);
-    });
-  }
+  Future<void> _deleteSelected() async {
+    final it = _selected;
+    if (it == null || it.id == null) return;
 
-  Future<void> _confirmDelete(TodoItem item) async {
     final ok = await showDialog<bool>(
       context: context,
-      barrierDismissible: false,
       builder: (ctx) => AlertDialog(
-        title: const Text('Delete item'),
-        content: Text('Do you want to delete "${item.name}" (qty: ${item.quantity})?'),
+        title: const Text('Delete item?'),
+        content: Text('Delete "${it.name}" permanently?'),
         actions: [
-          TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: const Text('No')),
-          TextButton(onPressed: () => Navigator.of(ctx).pop(true), child: const Text('Yes')),
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('No')),
+          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Yes')),
         ],
       ),
     );
     if (ok == true) {
-      await _deleteItem(item);
+      await _dao.deleteById(it.id!);
+      _selected = null;
+      await _reload();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('"${item.name}" removed')),
+          SnackBar(content: Text('Deleted "${it.name}"')),
         );
       }
     }
   }
 
-  // Per instructions: create the list UI in a function that returns a widget.
-  Widget ListPage() {
-    return Column(
-      children: [
-        // One line: Item, Qty, Add
-        Row(
-          children: [
-            Expanded(
-              flex: 3,
-              child: TextField(
-                controller: _itemCtrl,
-                decoration: const InputDecoration(
-                  labelText: 'Item name',
-                  border: OutlineInputBorder(),
-                ),
-                textInputAction: TextInputAction.next,
-              ),
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              flex: 1,
-              child: TextField(
-                controller: _qtyCtrl,
-                keyboardType: TextInputType.number,
-                decoration: const InputDecoration(
-                  labelText: 'Qty',
-                  border: OutlineInputBorder(),
-                ),
-                onSubmitted: (_) => _addItem(),
-              ),
-            ),
-            const SizedBox(width: 8),
-            ElevatedButton(onPressed: _addItem, child: const Text('Add')),
-          ],
-        ),
-        const SizedBox(height: 12),
-
-        // Empty state or list
-        Expanded(
-          child: _loading
-              ? const Center(child: CircularProgressIndicator())
-              : _items.isEmpty
-              ? const Center(
-            child: Text(
-              'There are no items in the list',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
-            ),
-          )
-              : ListView.builder(
-            itemCount: _items.length,
-            itemBuilder: (context, index) {
-              final e = _items[index];
-              return GestureDetector(
-                onLongPress: () => _confirmDelete(e),
-                child: Card(
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                    child: Row(
-                      children: [
-                        // Left: row number + item name
-                        Expanded(
-                          child: Text(
-                            '${index + 1}. ${e.name}',
-                            style: const TextStyle(fontSize: 16),
-                          ),
-                        ),
-                        // Right: quantity
-                        Text(
-                          '${e.quantity}',
-                          style: const TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              );
-            },
-          ),
-        ),
-      ],
-    );
-  }
-
   @override
   void dispose() {
-    _itemCtrl.dispose();
+    _nameCtrl.dispose();
     _qtyCtrl.dispose();
-    _db.close();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
+    final tablet = _isWideLandscape(context);
+
     return Scaffold(
-      appBar: AppBar(title: const Text('Shopping List (Floor)')),
-      body: Padding(padding: const EdgeInsets.all(12), child: ListPage()),
+      appBar: AppBar(
+        title: const Text('Shopping List'),
+        actions: [
+          IconButton(
+            tooltip: 'Close details',
+            onPressed: _selected == null ? null : () => setState(() => _selected = null),
+            icon: const Icon(Icons.close),
+          ),
+        ],
+      ),
+      body: Padding(
+        padding: const EdgeInsets.all(12),
+        child: tablet
+        // -------- Tablet / Landscape (equal split) --------
+            ? Column(
+          children: [
+            _buildInputRow(),
+            const SizedBox(height: 12),
+            Expanded(
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  // Left side: List
+                  Expanded(flex: 1, child: _buildList()),
+
+                  // Center divider (visible gray line)
+                  const VerticalDivider(
+                    width: 1,
+                    thickness: 1,
+                    color: Colors.grey,
+                  ),
+
+                  // Right side: Details
+                  Expanded(flex: 1, child: _buildDetails()),
+                ],
+              ),
+            ),
+          ],
+        )
+
+        // -------- Phone / Portrait (stacked) --------
+            : Column(
+          children: [
+            _buildInputRow(),
+            const SizedBox(height: 12),
+            Expanded(
+              child: _selected == null ? _buildList() : _buildDetails(),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // Row for adding items
+  Widget _buildInputRow() {
+    return Row(
+      children: [
+        Expanded(
+          child: TextField(
+            controller: _nameCtrl,
+            decoration: const InputDecoration(
+              hintText: 'Type the item here',
+              border: OutlineInputBorder(),
+            ),
+            textInputAction: TextInputAction.next,
+          ),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: TextField(
+            controller: _qtyCtrl,
+            decoration: const InputDecoration(
+              hintText: 'Type the quantity here',
+              border: OutlineInputBorder(),
+            ),
+            keyboardType: TextInputType.number,
+            onSubmitted: (_) => _addItem(),
+          ),
+        ),
+        const SizedBox(width: 8),
+        ElevatedButton(onPressed: _addItem, child: const Text('Add')),
+      ],
+    );
+  }
+
+  // List of items (tap to open details)
+  Widget _buildList() {
+    if (_items.isEmpty) {
+      return const Center(
+        child: Text('There are no items in the list', style: TextStyle(fontSize: 16)),
+      );
+    }
+    return ListView.separated(
+      itemCount: _items.length,
+      separatorBuilder: (_, __) => const Divider(height: 1),
+      itemBuilder: (context, i) {
+        final it = _items[i];
+        return ListTile(
+          title: Row(
+            children: [
+              Expanded(
+                  child: Text('${i + 1}: ${it.name}', style: const TextStyle(fontSize: 16))),
+              Text('quantity: ${it.quantity}', style: const TextStyle(fontSize: 16)),
+            ],
+          ),
+          subtitle: Text('ID: ${it.id ?? '-'}'),
+          onTap: () => setState(() => _selected = it),
+        );
+      },
+    );
+  }
+
+  // Details view for selected item
+  Widget _buildDetails() {
+    final it = _selected;
+    if (it == null) {
+      return const Center(
+        child: Text(
+          'Select an item to see details.',
+          style: TextStyle(fontSize: 16),
+        ),
+      );
+    }
+    return Padding(
+      padding: const EdgeInsets.all(12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(it.name, style: Theme.of(context).textTheme.headlineMedium),
+          const SizedBox(height: 8),
+          Text('Quantity: ${it.quantity}'),
+          Text('Database ID: ${it.id ?? '-'}'),
+          const Spacer(),
+          Row(
+            children: [
+              FilledButton(onPressed: _deleteSelected, child: const Text('Delete')),
+              const SizedBox(width: 12),
+              FilledButton.tonal(
+                onPressed: () => setState(() => _selected = null),
+                child: const Text('Close'),
+              ),
+            ],
+          ),
+        ],
+      ),
     );
   }
 }

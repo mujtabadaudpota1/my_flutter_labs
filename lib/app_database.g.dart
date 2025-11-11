@@ -72,7 +72,7 @@ class _$AppDatabase extends AppDatabase {
     changeListener = listener ?? StreamController<String>.broadcast();
   }
 
-  TodoDao? _todoDaoInstance;
+  ToDoDao? _todoDaoInstance;
 
   Future<sqflite.Database> open(
     String path,
@@ -96,7 +96,7 @@ class _$AppDatabase extends AppDatabase {
       },
       onCreate: (database, version) async {
         await database.execute(
-            'CREATE TABLE IF NOT EXISTS `TodoItem` (`id` INTEGER, `name` TEXT NOT NULL, `quantity` INTEGER NOT NULL, PRIMARY KEY (`id`))');
+            'CREATE TABLE IF NOT EXISTS `items` (`id` INTEGER PRIMARY KEY AUTOINCREMENT, `name` TEXT NOT NULL, `quantity` INTEGER NOT NULL)');
 
         await callback?.onCreate?.call(database, version);
       },
@@ -105,29 +105,38 @@ class _$AppDatabase extends AppDatabase {
   }
 
   @override
-  TodoDao get todoDao {
-    return _todoDaoInstance ??= _$TodoDao(database, changeListener);
+  ToDoDao get todoDao {
+    return _todoDaoInstance ??= _$ToDoDao(database, changeListener);
   }
 }
 
-class _$TodoDao extends TodoDao {
-  _$TodoDao(
+class _$ToDoDao extends ToDoDao {
+  _$ToDoDao(
     this.database,
     this.changeListener,
   )   : _queryAdapter = QueryAdapter(database),
-        _todoItemInsertionAdapter = InsertionAdapter(
+        _toDoItemInsertionAdapter = InsertionAdapter(
             database,
-            'TodoItem',
-            (TodoItem item) => <String, Object?>{
+            'items',
+            (ToDoItem item) => <String, Object?>{
                   'id': item.id,
                   'name': item.name,
                   'quantity': item.quantity
                 }),
-        _todoItemDeletionAdapter = DeletionAdapter(
+        _toDoItemUpdateAdapter = UpdateAdapter(
             database,
-            'TodoItem',
+            'items',
             ['id'],
-            (TodoItem item) => <String, Object?>{
+            (ToDoItem item) => <String, Object?>{
+                  'id': item.id,
+                  'name': item.name,
+                  'quantity': item.quantity
+                }),
+        _toDoItemDeletionAdapter = DeletionAdapter(
+            database,
+            'items',
+            ['id'],
+            (ToDoItem item) => <String, Object?>{
                   'id': item.id,
                   'name': item.name,
                   'quantity': item.quantity
@@ -139,27 +148,51 @@ class _$TodoDao extends TodoDao {
 
   final QueryAdapter _queryAdapter;
 
-  final InsertionAdapter<TodoItem> _todoItemInsertionAdapter;
+  final InsertionAdapter<ToDoItem> _toDoItemInsertionAdapter;
 
-  final DeletionAdapter<TodoItem> _todoItemDeletionAdapter;
+  final UpdateAdapter<ToDoItem> _toDoItemUpdateAdapter;
+
+  final DeletionAdapter<ToDoItem> _toDoItemDeletionAdapter;
 
   @override
-  Future<List<TodoItem>> getAll() async {
-    return _queryAdapter.queryList('SELECT * FROM TodoItem',
-        mapper: (Map<String, Object?> row) => TodoItem(
+  Future<List<ToDoItem>> findAll() async {
+    return _queryAdapter.queryList('SELECT * FROM items ORDER BY id ASC',
+        mapper: (Map<String, Object?> row) => ToDoItem(
             id: row['id'] as int?,
             name: row['name'] as String,
             quantity: row['quantity'] as int));
   }
 
   @override
-  Future<int> insertOne(TodoItem item) {
-    return _todoItemInsertionAdapter.insertAndReturnId(
+  Future<ToDoItem?> findById(int id) async {
+    return _queryAdapter.query('SELECT * FROM items WHERE id = ?1',
+        mapper: (Map<String, Object?> row) => ToDoItem(
+            id: row['id'] as int?,
+            name: row['name'] as String,
+            quantity: row['quantity'] as int),
+        arguments: [id]);
+  }
+
+  @override
+  Future<void> deleteById(int id) async {
+    await _queryAdapter
+        .queryNoReturn('DELETE FROM items WHERE id = ?1', arguments: [id]);
+  }
+
+  @override
+  Future<int> insertItem(ToDoItem item) {
+    return _toDoItemInsertionAdapter.insertAndReturnId(
         item, OnConflictStrategy.abort);
   }
 
   @override
-  Future<int> deleteOne(TodoItem item) {
-    return _todoItemDeletionAdapter.deleteAndReturnChangedRows(item);
+  Future<int> updateItem(ToDoItem item) {
+    return _toDoItemUpdateAdapter.updateAndReturnChangedRows(
+        item, OnConflictStrategy.abort);
+  }
+
+  @override
+  Future<int> deleteItem(ToDoItem item) {
+    return _toDoItemDeletionAdapter.deleteAndReturnChangedRows(item);
   }
 }
